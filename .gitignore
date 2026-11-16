@@ -1,4 +1,25 @@
-node_modules/
+# Build & Dependency Directories
 target/
-.env
+*.class
+node_modules/
+dist/
+.vite/
+
+# Logs
 *.log
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# IDE & Editor Files
+.idea/
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS Files
+Thumbs.db
