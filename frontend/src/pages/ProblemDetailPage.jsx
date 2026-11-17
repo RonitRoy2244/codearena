@@ -1,22 +1,50 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import Editor from '@monaco-editor/react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import confetti from 'canvas-confetti';
+import toast from 'react-hot-toast';
+import {
+  Play,
+  Send,
+  RotateCcw,
+  Copy,
+  Check,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Clock,
+  FileText,
+  ListFilter,
+  X,
+  ChevronRight,
+} from 'lucide-react';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { DifficultyPill } from '../components/ui/Badge';
+import Button from '../components/ui/Button';
+import { Kbd, Skeleton } from '../components/ui/Skeleton';
 
 const STARTER_CODES = {
   JAVASCRIPT: `const fs = require('fs');
 const input = require('fs').readFileSync(0, 'utf8');
 
-// Write your solution here:
-console.log(input.trim());
+function solve() {
+  // Write your solution here
+  console.log(input.trim());
+}
+
+solve();
 `,
   JAVA: `import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
-        // Write your solution here:
+        // Write your solution here
         if (scanner.hasNextLine()) {
             System.out.println(scanner.nextLine());
         }
@@ -29,55 +57,172 @@ export default function ProblemDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { isDark } = useTheme();
 
+  // Problem State
   const [problem, setProblem] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadingProblem, setLoadingProblem] = useState(true);
+  const [problemError, setProblemError] = useState('');
+  const [isSolved, setIsSolved] = useState(false);
 
+  // Left Panel Tabs: 'description' | 'submissions'
+  const [leftTab, setLeftTab] = useState('description');
+  const [problemSubmissions, setProblemSubmissions] = useState([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [selectedSubmissionCode, setSelectedSubmissionCode] = useState(null);
+
+  // Editor State
   const [selectedLanguage, setSelectedLanguage] = useState('JAVASCRIPT');
-  const [codeByLanguage, setCodeByLanguage] = useState(STARTER_CODES);
+  const [fontSize, setFontSize] = useState(() => {
+    return parseInt(localStorage.getItem('codearena-font-size') || '14', 10);
+  });
 
+  // Stored code per problem & language
+  const [codeByLanguage, setCodeByLanguage] = useState(() => {
+    const saved = localStorage.getItem(`codearena-code-${slug}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return STARTER_CODES;
+      }
+    }
+    return STARTER_CODES;
+  });
+
+  // Bottom Console Tabs: 'testcase' | 'result'
+  const [consoleTab, setConsoleTab] = useState('testcase');
+  const [selectedCaseIdx, setSelectedCaseIdx] = useState(0);
+
+  // Execution State
   const [isExecuting, setIsExecuting] = useState(false);
-  const [executionType, setExecutionType] = useState(null); // 'run' | 'submit' | null
-  const [errorMessage, setErrorMessage] = useState('');
-  const [result, setResult] = useState(null);
+  const [executionType, setExecutionType] = useState(null); // 'run' | 'submit'
+  const [runResult, setRunResult] = useState(null);
+  const [copiedKey, setCopiedKey] = useState(null);
 
+  // Mobile layout switch (below 900px): 'desc' | 'code'
+  const [mobileTab, setMobileTab] = useState('desc');
+
+  // Fetch Problem Data
   useEffect(() => {
-    setLoading(true);
-    setError('');
+    setLoadingProblem(true);
+    setProblemError('');
+
     api.get(`/api/problems/${slug}`)
       .then((res) => {
         setProblem(res.data);
       })
       .catch((err) => {
-        setError(err.response?.data?.message || 'Failed to load problem details.');
+        setProblemError(err.response?.data?.message || 'Failed to load problem.');
       })
       .finally(() => {
-        setLoading(false);
+        setLoadingProblem(false);
       });
   }, [slug]);
 
-  const handleLanguageChange = (e) => {
-    setSelectedLanguage(e.target.value);
+  // Fetch Problem Submissions when authenticated
+  const fetchSubmissions = async () => {
+    if (!isAuthenticated) return;
+    setLoadingSubmissions(true);
+    try {
+      const res = await api.get('/api/submissions/me');
+      const filtered = (res.data || []).filter((s) => s.problemSlug === slug);
+      setProblemSubmissions(filtered);
+      const solved = filtered.some((s) => s.status === 'ACCEPTED');
+      setIsSolved(solved);
+    } catch {
+      setProblemSubmissions([]);
+    } finally {
+      setLoadingSubmissions(false);
+    }
   };
 
+  useEffect(() => {
+    fetchSubmissions();
+  }, [slug, isAuthenticated]);
+
+  // Save Code to LocalStorage
   const handleCodeChange = (value) => {
-    setCodeByLanguage((prev) => ({
-      ...prev,
-      [selectedLanguage]: value ?? '',
-    }));
+    setCodeByLanguage((prev) => {
+      const updated = { ...prev, [selectedLanguage]: value ?? '' };
+      localStorage.setItem(`codearena-code-${slug}`, JSON.stringify(updated));
+      return updated;
+    });
   };
 
+  // Reset Code
+  const handleResetCode = () => {
+    if (window.confirm('Reset code to starter template?')) {
+      setCodeByLanguage((prev) => {
+        const updated = { ...prev, [selectedLanguage]: STARTER_CODES[selectedLanguage] };
+        localStorage.setItem(`codearena-code-${slug}`, JSON.stringify(updated));
+        return updated;
+      });
+      toast('Code reset to default starter', { icon: '🔄' });
+    }
+  };
+
+  // Font size change
+  const handleFontSizeChange = (e) => {
+    const size = parseInt(e.target.value, 10);
+    setFontSize(size);
+    localStorage.setItem('codearena-font-size', String(size));
+  };
+
+  // Define Custom Monaco Theme
+  const handleEditorWillMount = (monaco) => {
+    monaco.editor.defineTheme('codearena-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'ffa116', fontStyle: 'bold' },
+        { token: 'string', foreground: '2cbb5d' },
+        { token: 'number', foreground: '7c5cff' },
+        { token: 'identifier', foreground: 'e8ebf1' },
+      ],
+      colors: {
+        'editor.background': '#11141b',
+        'editor.foreground': '#e8ebf1',
+        'editor.lineHighlightBackground': '#1c212c66',
+        'editorCursor.foreground': '#ffa116',
+        'editorWhitespace.foreground': '#2a303c',
+        'editorIndentGuide.background': '#1e2430',
+        'editorIndentGuide.activeBackground': '#3a4459',
+        'editor.selectionBackground': '#7c5cff33',
+      },
+    });
+
+    monaco.editor.defineTheme('codearena-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'd97706', fontStyle: 'bold' },
+        { token: 'string', foreground: '16a34a' },
+        { token: 'number', foreground: '6d4aff' },
+      ],
+      colors: {
+        'editor.background': '#f8fafc',
+        'editor.foreground': '#171b23',
+        'editor.lineHighlightBackground': '#edf0f5',
+        'editorCursor.foreground': '#f59e0b',
+        'editor.selectionBackground': '#7c5cff22',
+      },
+    });
+  };
+
+  // Execute Code: Run
   const handleRun = async () => {
     if (!isAuthenticated) {
+      toast('Please sign in to run code', { icon: '🔒' });
       navigate('/login');
       return;
     }
 
     setIsExecuting(true);
     setExecutionType('run');
-    setErrorMessage('');
-    setResult(null);
+    setConsoleTab('result');
 
     try {
       const res = await api.post('/api/run', {
@@ -85,14 +230,15 @@ export default function ProblemDetailPage() {
         language: selectedLanguage,
         sourceCode: codeByLanguage[selectedLanguage],
       });
-      setResult({ type: 'run', ...res.data });
+      setRunResult({ type: 'run', ...res.data });
+      setSelectedCaseIdx(0);
     } catch (err) {
       if (err.response?.status === 401) {
         navigate('/login');
       } else if (err.response?.status === 429) {
-        setErrorMessage('Please wait a few seconds');
+        toast.error('Slow down, try again in a few seconds');
       } else {
-        setErrorMessage(err.response?.data?.message || 'Failed to run code.');
+        toast.error(err.response?.data?.message || 'Execution error');
       }
     } finally {
       setIsExecuting(false);
@@ -100,16 +246,17 @@ export default function ProblemDetailPage() {
     }
   };
 
+  // Execute Code: Submit
   const handleSubmit = async () => {
     if (!isAuthenticated) {
+      toast('Please sign in to submit your solution', { icon: '🔒' });
       navigate('/login');
       return;
     }
 
     setIsExecuting(true);
     setExecutionType('submit');
-    setErrorMessage('');
-    setResult(null);
+    setConsoleTab('result');
 
     try {
       const res = await api.post('/api/submissions', {
@@ -117,14 +264,34 @@ export default function ProblemDetailPage() {
         language: selectedLanguage,
         sourceCode: codeByLanguage[selectedLanguage],
       });
-      setResult({ type: 'submit', ...res.data });
+
+      const data = { type: 'submit', ...res.data };
+      setRunResult(data);
+
+      if (data.verdict === 'ACCEPTED') {
+        setIsSolved(true);
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!prefersReducedMotion) {
+          confetti({
+            particleCount: 90,
+            spread: 75,
+            origin: { y: 0.6 },
+            colors: ['#2cbb5d', '#ffa116', '#7c5cff'],
+          });
+        }
+        toast.success('Accepted! All test cases passed.');
+      } else {
+        toast.error(`Verdict: ${data.verdict.replace(/_/g, ' ')}`);
+      }
+
+      fetchSubmissions();
     } catch (err) {
       if (err.response?.status === 401) {
         navigate('/login');
       } else if (err.response?.status === 429) {
-        setErrorMessage('Please wait a few seconds');
+        toast.error('Slow down, try again in a few seconds');
       } else {
-        setErrorMessage(err.response?.data?.message || 'Failed to submit code.');
+        toast.error(err.response?.data?.message || 'Submission error');
       }
     } finally {
       setIsExecuting(false);
@@ -132,325 +299,991 @@ export default function ProblemDetailPage() {
     }
   };
 
-  const getDifficultyBadge = (difficulty) => {
-    switch (difficulty) {
-      case 'EASY':
-        return <span className="badge bg-success">Easy</span>;
-      case 'MEDIUM':
-        return <span className="badge bg-warning text-dark">Medium</span>;
-      case 'HARD':
-        return <span className="badge bg-danger">Hard</span>;
-      default:
-        return <span className="badge bg-secondary">{difficulty}</span>;
-    }
+  // Global Keyboard Shortcuts: Ctrl+Enter (Run) & Ctrl+Shift+Enter (Submit)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleSubmit();
+        } else {
+          handleRun();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [codeByLanguage, selectedLanguage, isAuthenticated]);
+
+  // Copy helper
+  const copyToClipboard = (text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
   };
 
-  if (loading) {
+  // Loading / Error screen
+  if (loadingProblem) {
     return (
-      <div className="container py-5 text-center">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading problem...</span>
+      <div style={{ height: 'calc(100vh - 56px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="ca-spin" style={{ display: 'inline-block', marginBottom: '16px', color: 'var(--accent)' }}>
+            <RotateCcw size={28} />
+          </div>
+          <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading problem environment...</div>
         </div>
       </div>
     );
   }
 
-  if (error || !problem) {
+  if (problemError || !problem) {
     return (
-      <div className="container py-5">
-        <div className="alert alert-danger" role="alert">
-          {error || 'Problem not found.'}
+      <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+        <div style={{ color: 'var(--hard)', fontSize: '1.25rem', fontWeight: 700, marginBottom: '12px' }}>
+          {problemError || 'Problem not found'}
         </div>
-        <Link to="/problems" className="btn btn-outline-primary">
-          &larr; Back to Problems
+        <Link to="/problems">
+          <Button variant="secondary" size="md">
+            &larr; Back to Problems
+          </Button>
         </Link>
       </div>
     );
   }
 
-  const monacoLanguage = selectedLanguage === 'JAVASCRIPT' ? 'javascript' : 'java';
-
-  const passedCount = result
-    ? result.type === 'run'
-      ? (result.cases?.filter((c) => c.status === 'ACCEPTED').length ?? 0)
-      : result.passedCount
-    : 0;
-
-  const totalCount = result
-    ? result.type === 'run'
-      ? (result.cases?.length ?? 0)
-      : result.totalCount
-    : 0;
+  const sampleCases = problem.sampleTestCases || [];
+  const currentCase = sampleCases[selectedCaseIdx] || sampleCases[0] || null;
 
   return (
-    <div className="container-fluid px-4 py-4">
-      <div className="mb-3">
-        <Link to="/problems" className="text-decoration-none text-muted small">
-          &larr; All Problems
-        </Link>
+    <div
+      style={{
+        height: 'calc(100vh - 56px)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: 'var(--bg)',
+      }}
+    >
+      {/* Mobile Top Segmented Switch (< 900px) */}
+      <div
+        className="d-flex d-md-none align-items-center justify-content-between px-3 py-2"
+        style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}
+      >
+        <div style={{ display: 'flex', gap: '4px' }}>
+          <button
+            type="button"
+            onClick={() => setMobileTab('desc')}
+            style={{
+              padding: '4px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              background: mobileTab === 'desc' ? 'var(--surface-2)' : 'transparent',
+              color: mobileTab === 'desc' ? 'var(--accent)' : 'var(--muted)',
+              border: 'none',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            Description
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab('code')}
+            style={{
+              padding: '4px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              background: mobileTab === 'code' ? 'var(--surface-2)' : 'transparent',
+              color: mobileTab === 'code' ? 'var(--accent)' : 'var(--muted)',
+              border: 'none',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            Code &amp; Console
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <Button variant="secondary" size="sm" onClick={handleRun} disabled={isExecuting}>
+            Run
+          </Button>
+          <Button variant="success" size="sm" onClick={handleSubmit} disabled={isExecuting}>
+            Submit
+          </Button>
+        </div>
       </div>
 
-      <div className="row g-4">
-        {/* Left Column: Problem Details & Sample Cases */}
-        <div className="col-12 col-lg-5">
-          <div className="card shadow-sm border-0 h-100">
-            <div className="card-body p-4">
-              <div className="d-flex align-items-center gap-2 mb-3">
-                <h3 className="fw-bold mb-0">{problem.title}</h3>
-                {getDifficultyBadge(problem.difficulty)}
-              </div>
-
-              {problem.timeLimitMs && (
-                <div className="text-muted small mb-3">
-                  Time Limit: <strong>{problem.timeLimitMs} ms</strong>
-                </div>
-              )}
-
-              <div className="mb-4">
-                <h5 className="fw-semibold">Description</h5>
-                <div
-                  className="text-secondary"
-                  style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}
+      {/* Main Resizable Workspace */}
+      <div style={{ flexGrow: 1, height: '100%', overflow: 'hidden' }}>
+        <Group orientation="horizontal" id="codearena-workspace-v1">
+          {/* LEFT PANEL: Description & Submissions */}
+          <Panel
+            defaultSize="45%"
+            minSize="25%"
+            className={`workspace-panel ${mobileTab === 'code' ? 'd-none d-md-block' : ''}`}
+            style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--surface)',
+              borderRight: '1px solid var(--border)',
+            }}
+          >
+            {/* Left Header Tabs */}
+            <div
+              style={{
+                height: '42px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 16px',
+                background: 'var(--surface-2)',
+                borderBottom: '1px solid var(--border)',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('description')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    color: leftTab === 'description' ? 'var(--text)' : 'var(--muted)',
+                    background: leftTab === 'description' ? 'var(--surface)' : 'transparent',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                  }}
                 >
-                  {problem.description}
-                </div>
+                  <FileText size={14} style={{ color: 'var(--accent)' }} />
+                  <span>Description</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('submissions')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    color: leftTab === 'submissions' ? 'var(--text)' : 'var(--muted)',
+                    background: leftTab === 'submissions' ? 'var(--surface)' : 'transparent',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ListFilter size={14} style={{ color: 'var(--accent-2)' }} />
+                  <span>Submissions</span>
+                  {problemSubmissions.length > 0 && (
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        padding: '1px 6px',
+                        borderRadius: 'var(--radius-full)',
+                        background: 'var(--surface-2)',
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      {problemSubmissions.length}
+                    </span>
+                  )}
+                </button>
               </div>
 
-              {problem.sampleTestCases && problem.sampleTestCases.length > 0 && (
+              {isSolved && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: 'var(--easy)',
+                    background: 'var(--easy-bg)',
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-full)',
+                  }}
+                >
+                  <CheckCircle2 size={13} /> Solved
+                </span>
+              )}
+            </div>
+
+            {/* Left Content Area (Scrollable) */}
+            <div style={{ flexGrow: 1, overflowY: 'auto', padding: '24px' }}>
+              {leftTab === 'description' ? (
                 <div>
-                  <h5 className="fw-semibold mb-3">Sample Test Cases</h5>
-                  {problem.sampleTestCases.map((tc, index) => (
-                    <div key={tc.id || index} className="card bg-light border-0 mb-3">
-                      <div className="card-body p-3">
-                        <div className="fw-semibold text-secondary small mb-2">
-                          Example {index + 1}
-                        </div>
-                        <div className="mb-2">
-                          <div className="text-muted small fw-semibold">Input:</div>
-                          <pre className="bg-white p-2 rounded border mb-0 small font-monospace">
-                            <code>{tc.input}</code>
-                          </pre>
-                        </div>
-                        <div>
-                          <div className="text-muted small fw-semibold">Expected Output:</div>
-                          <pre className="bg-white p-2 rounded border mb-0 small font-monospace">
-                            <code>{tc.expectedOutput}</code>
-                          </pre>
-                        </div>
+                  {/* Title & Badge */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
+                      {problem.title}
+                    </h2>
+                    <DifficultyPill difficulty={problem.difficulty} size="sm" />
+                  </div>
+
+                  {/* Time limit info */}
+                  {problem.timeLimitMs && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Clock size={13} /> Time Limit: <strong>{problem.timeLimitMs} ms</strong>
+                      <span style={{ color: 'var(--border)' }}>&bull;</span>
+                      <span>Java 3x limit multiplier</span>
+                    </div>
+                  )}
+
+                  {/* Markdown Problem Description */}
+                  <div
+                    className="ca-markdown"
+                    style={{
+                      color: 'var(--text)',
+                      fontSize: '0.925rem',
+                      lineHeight: 1.7,
+                      marginBottom: '28px',
+                    }}
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {problem.description || ''}
+                    </ReactMarkdown>
+                  </div>
+
+                  {/* Sample Test Cases (Example 1, Example 2) */}
+                  {sampleCases.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '16px', color: 'var(--text)' }}>
+                        Examples
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {sampleCases.map((tc, idx) => (
+                          <div
+                            key={tc.id || idx}
+                            style={{
+                              background: 'var(--surface-2)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius)',
+                              padding: '16px',
+                            }}
+                          >
+                            <div style={{ fontSize: '0.825rem', fontWeight: 700, color: 'var(--accent)', marginBottom: '12px' }}>
+                              Example {idx + 1}
+                            </div>
+
+                            {/* Input */}
+                            <div style={{ marginBottom: '10px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>Input:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(tc.input, `in-${idx}`)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}
+                                >
+                                  {copiedKey === `in-${idx}` ? <Check size={12} style={{ color: 'var(--easy)' }} /> : <Copy size={12} />}
+                                  {copiedKey === `in-${idx}` ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <pre
+                                style={{
+                                  margin: 0,
+                                  padding: '8px 12px',
+                                  background: 'var(--code-bg)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--border)',
+                                  fontSize: '0.8rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: 'var(--text)',
+                                  whiteSpace: 'pre-wrap',
+                                }}
+                              >
+                                <code>{tc.input}</code>
+                              </pre>
+                            </div>
+
+                            {/* Output */}
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>Output:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(tc.expectedOutput, `out-${idx}`)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}
+                                >
+                                  {copiedKey === `out-${idx}` ? <Check size={12} style={{ color: 'var(--easy)' }} /> : <Copy size={12} />}
+                                  {copiedKey === `out-${idx}` ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <pre
+                                style={{
+                                  margin: 0,
+                                  padding: '8px 12px',
+                                  background: 'var(--code-bg)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--border)',
+                                  fontSize: '0.8rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: 'var(--text)',
+                                  whiteSpace: 'pre-wrap',
+                                }}
+                              >
+                                <code>{tc.expectedOutput}</code>
+                              </pre>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
+                </div>
+              ) : (
+                /* Submissions Tab */
+                <div>
+                  <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px 0', color: 'var(--text)' }}>
+                    Your Submissions for {problem.title}
+                  </h4>
+
+                  {!isAuthenticated ? (
+                    <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                      <Link to="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>Sign in</Link> to view and inspect your past submissions.
+                    </div>
+                  ) : loadingSubmissions ? (
+                    <div style={{ padding: '24px 0' }}>
+                      <Skeleton height="36px" style={{ marginBottom: '8px' }} />
+                      <Skeleton height="36px" style={{ marginBottom: '8px' }} />
+                      <Skeleton height="36px" />
+                    </div>
+                  ) : problemSubmissions.length === 0 ? (
+                    <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                      No submissions recorded yet for this problem. Try submitting your code!
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {problemSubmissions.map((sub) => {
+                        const isAcc = sub.status === 'ACCEPTED';
+                        return (
+                          <div
+                            key={sub.id}
+                            onClick={() => {
+                              api.get(`/api/submissions/${sub.id}`).then((res) => {
+                                setSelectedSubmissionCode(res.data);
+                              });
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '12px 16px',
+                              background: 'var(--surface-2)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius)',
+                              cursor: 'pointer',
+                              transition: 'all var(--transition-fast)',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+                          >
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <span
+                                  style={{
+                                    fontWeight: 700,
+                                    fontSize: '0.8125rem',
+                                    color: isAcc ? 'var(--easy)' : 'var(--hard)',
+                                  }}
+                                >
+                                  {sub.status.replace(/_/g, ' ')}
+                                </span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                                  #{sub.id}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                                {sub.language} &bull; {sub.runtimeMs != null ? `${sub.runtimeMs} ms` : '-'} &bull; {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : ''}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--accent)' }}>
+                              <span>View code</span>
+                              <ChevronRight size={14} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Right Column: Language selector, Monaco Editor, Run & Submit, Results */}
-        <div className="col-12 col-lg-7">
-          <div className="card shadow-sm border-0 d-flex flex-column">
-            <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center border-bottom">
-              <span className="fw-semibold">Code Editor</span>
-              <div className="d-flex align-items-center gap-2">
-                <label htmlFor="languageSelect" className="small text-muted mb-0">
-                  Language:
-                </label>
-                <select
-                  id="languageSelect"
-                  className="form-select form-select-sm"
-                  style={{ width: '150px' }}
-                  value={selectedLanguage}
-                  onChange={handleLanguageChange}
-                  disabled={isExecuting}
-                >
-                  <option value="JAVASCRIPT">JavaScript</option>
-                  <option value="JAVA">Java</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="card-body p-0" style={{ minHeight: '60vh' }}>
-              <Editor
-                height="60vh"
-                language={monacoLanguage}
-                value={codeByLanguage[selectedLanguage]}
-                theme="vs-dark"
-                onChange={handleCodeChange}
-                options={{
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  tabSize: selectedLanguage === 'JAVA' ? 4 : 2,
+            {/* Read-Only Submission Code Drawer */}
+            {selectedSubmissionCode && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'var(--surface)',
+                  zIndex: 20,
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
-              />
-            </div>
-
-            <div className="card-footer bg-white border-top py-3 d-flex justify-content-end align-items-center gap-2">
-              <button
-                className="btn btn-outline-secondary px-3 d-flex align-items-center gap-2"
-                onClick={handleRun}
-                disabled={isExecuting}
               >
-                {isExecuting && executionType === 'run' && (
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                )}
-                Run
-              </button>
-              <button
-                className="btn btn-success px-4 d-flex align-items-center gap-2"
-                onClick={handleSubmit}
-                disabled={isExecuting}
-              >
-                {isExecuting && executionType === 'submit' && (
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                )}
-                Submit
-              </button>
-            </div>
-          </div>
-
-          {/* Friendly 429 or other error message alert */}
-          {errorMessage && (
-            <div className="alert alert-warning mt-3 d-flex align-items-center justify-content-between" role="alert">
-              <div>
-                <strong>{errorMessage === 'Please wait a few seconds' ? 'Rate Limit: ' : 'Notice: '}</strong>
-                {errorMessage}
-              </div>
-              <button
-                type="button"
-                className="btn-close"
-                onClick={() => setErrorMessage('')}
-                aria-label="Close"
-              ></button>
-            </div>
-          )}
-
-          {/* Execution in progress spinner card */}
-          {isExecuting && (
-            <div className="card shadow-sm border-0 mt-3">
-              <div className="card-body p-4 text-center text-muted">
-                <div className="spinner-border text-primary me-2" role="status">
-                  <span className="visually-hidden">Executing...</span>
-                </div>
-                <span>
-                  {executionType === 'run'
-                    ? 'Running code on sample test cases...'
-                    : 'Submitting solution and judging test cases...'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Result Panel */}
-          {result && !isExecuting && (
-            <div className="card shadow-sm border-0 mt-3">
-              <div className="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
-                <h5 className="mb-0 fw-bold">
-                  {result.type === 'run' ? 'Run Result' : 'Submission Result'}
-                </h5>
-                <span
-                  className={`fw-bold fs-6 ${
-                    result.verdict === 'ACCEPTED' ? 'text-success' : 'text-danger'
-                  }`}
+                <div
+                  style={{
+                    height: '48px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 16px',
+                    borderBottom: '1px solid var(--border)',
+                    background: 'var(--surface-2)',
+                  }}
                 >
-                  {result.verdict}
-                </span>
-              </div>
-              <div className="card-body p-4">
-                <div className="d-flex flex-wrap gap-4 mb-3 pb-3 border-bottom">
-                  <div>
-                    <span className="text-muted small d-block">Verdict</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span
-                      className={`fw-bold fs-5 ${
-                        result.verdict === 'ACCEPTED' ? 'text-success' : 'text-danger'
-                      }`}
+                      style={{
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        color: selectedSubmissionCode.status === 'ACCEPTED' ? 'var(--easy)' : 'var(--hard)',
+                      }}
                     >
-                      {result.verdict}
+                      Submission #{selectedSubmissionCode.id} &mdash; {selectedSubmissionCode.status.replace(/_/g, ' ')}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                      ({selectedSubmissionCode.runtimeMs} ms &bull; {selectedSubmissionCode.passedCount}/{selectedSubmissionCode.totalCount} passed)
                     </span>
                   </div>
-                  <div>
-                    <span className="text-muted small d-block">Passed</span>
-                    <span className="fw-bold fs-5 text-dark">
-                      {passedCount} / {totalCount}
-                    </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        copyToClipboard(selectedSubmissionCode.sourceCode, 'drawer-copy');
+                        toast.success('Code copied to clipboard');
+                      }}
+                      iconLeft={<Copy size={13} />}
+                    >
+                      Copy
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSubmissionCode(null)}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '4px' }}
+                    >
+                      <X size={18} />
+                    </button>
                   </div>
-                  <div>
-                    <span className="text-muted small d-block">Runtime</span>
-                    <span className="fw-bold fs-5 text-dark">
-                      {result.runtimeMs != null ? `${result.runtimeMs} ms` : 'N/A'}
-                    </span>
+                </div>
+                <div style={{ flexGrow: 1, padding: 0 }}>
+                  <Editor
+                    height="100%"
+                    language={selectedSubmissionCode.language === 'JAVASCRIPT' ? 'javascript' : 'java'}
+                    value={selectedSubmissionCode.sourceCode || ''}
+                    theme={isDark ? 'codearena-dark' : 'codearena-light'}
+                    beforeMount={handleEditorWillMount}
+                    options={{
+                      readOnly: true,
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      automaticLayout: true,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </Panel>
+
+          <Separator style={{ width: '4px', background: 'var(--border)', cursor: 'col-resize' }} />
+
+          {/* RIGHT PANEL: Editor (Top) & Console (Bottom) */}
+          <Panel
+            defaultSize="55%"
+            minSize="30%"
+            className={`workspace-panel ${mobileTab === 'desc' ? 'd-none d-md-block' : ''}`}
+            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+          >
+            <Group orientation="vertical" id="codearena-editor-console-v1">
+              {/* TOP PANEL: Monaco Editor */}
+              <Panel defaultSize="65%" minSize="30%" style={{ display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+                {/* Editor Toolbar */}
+                <div
+                  style={{
+                    height: '42px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 14px',
+                    background: 'var(--surface-2)',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* Language & Settings */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <select
+                      value={selectedLanguage}
+                      onChange={(e) => setSelectedLanguage(e.target.value)}
+                      style={{
+                        height: '28px',
+                        padding: '0 8px',
+                        fontSize: '0.8125rem',
+                        fontWeight: 600,
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text)',
+                        outline: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="JAVASCRIPT">JavaScript (Node 24)</option>
+                      <option value="JAVA">Java (OpenJDK 17)</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={handleResetCode}
+                      title="Reset code template"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--muted)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+
+                    {/* Font Size Select */}
+                    <select
+                      value={fontSize}
+                      onChange={handleFontSizeChange}
+                      title="Editor font size"
+                      style={{
+                        height: '26px',
+                        fontSize: '0.75rem',
+                        background: 'transparent',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="12">12px</option>
+                      <option value="14">14px</option>
+                      <option value="16">16px</option>
+                      <option value="18">18px</option>
+                    </select>
+                  </div>
+
+                  {/* Run & Submit Action Buttons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleRun}
+                      loading={isExecuting && executionType === 'run'}
+                      disabled={isExecuting}
+                      iconLeft={<Play size={13} fill="currentColor" />}
+                    >
+                      <span>Run</span>
+                      <span className="d-none d-xl-inline ms-1"><Kbd>Ctrl↵</Kbd></span>
+                    </Button>
+
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={handleSubmit}
+                      loading={isExecuting && executionType === 'submit'}
+                      disabled={isExecuting}
+                      iconLeft={<Send size={13} />}
+                    >
+                      <span>Submit</span>
+                      <span className="d-none d-xl-inline ms-1"><Kbd>Ctrl⇧↵</Kbd></span>
+                    </Button>
                   </div>
                 </div>
 
-                {/* Error text in monospace box if present */}
-                {result.errorText && (
-                  <div className="mb-3">
-                    <span className="text-danger small fw-semibold d-block mb-1">
-                      Error Output:
-                    </span>
-                    <pre
-                      className="bg-dark text-danger p-3 rounded small font-monospace mb-0"
-                      style={{ whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}
-                    >
-                      <code>{result.errorText}</code>
-                    </pre>
-                  </div>
-                )}
+                {/* Monaco Editor Container */}
+                <div style={{ flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
+                  <Editor
+                    height="100%"
+                    language={selectedLanguage === 'JAVASCRIPT' ? 'javascript' : 'java'}
+                    value={codeByLanguage[selectedLanguage]}
+                    theme={isDark ? 'codearena-dark' : 'codearena-light'}
+                    beforeMount={handleEditorWillMount}
+                    onChange={handleCodeChange}
+                    options={{
+                      fontSize,
+                      fontFamily: 'var(--font-mono)',
+                      fontLigatures: true,
+                      minimap: { enabled: false },
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      smoothScrolling: true,
+                      bracketPairColorization: { enabled: true },
+                      automaticLayout: true,
+                      scrollBeyondLastLine: false,
+                      tabSize: selectedLanguage === 'JAVA' ? 4 : 2,
+                      padding: { top: 12, bottom: 12 },
+                    }}
+                  />
+                </div>
+              </Panel>
 
-                {/* For Run: Show each sample case with input, expected, and actual */}
-                {result.type === 'run' && result.cases && result.cases.length > 0 && (
-                  <div className="mt-3">
-                    <h6 className="fw-semibold mb-3">Sample Cases Evaluation</h6>
-                    <div className="d-flex flex-column gap-3">
-                      {result.cases.map((c, idx) => (
-                        <div key={idx} className="card border">
-                          <div className="card-header bg-light d-flex justify-content-between align-items-center py-2">
-                            <span className="fw-semibold small">Case {idx + 1}</span>
-                            <span
-                              className={`badge ${
-                                c.status === 'ACCEPTED' ? 'bg-success' : 'bg-danger'
-                              }`}
-                            >
-                              {c.status}
-                            </span>
+              <Separator style={{ height: '4px', background: 'var(--border)', cursor: 'row-resize' }} />
+
+              {/* BOTTOM PANEL: Console (Testcase | Test Result) */}
+              <Panel defaultSize="35%" minSize="15%" style={{ display: 'flex', flexDirection: 'column', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
+                {/* Console Tabs */}
+                <div
+                  style={{
+                    height: '38px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 16px',
+                    borderBottom: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setConsoleTab('testcase')}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: consoleTab === 'testcase' ? 'var(--text)' : 'var(--muted)',
+                        background: consoleTab === 'testcase' ? 'var(--surface-2)' : 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Testcase
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConsoleTab('result')}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: consoleTab === 'result' ? 'var(--text)' : 'var(--muted)',
+                        background: consoleTab === 'result' ? 'var(--surface-2)' : 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span>Test Result</span>
+                      {runResult && (
+                        <span
+                          style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            background: runResult.verdict === 'ACCEPTED' ? 'var(--easy)' : 'var(--hard)',
+                          }}
+                        />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Console Content Area */}
+                <div style={{ flexGrow: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                  {consoleTab === 'testcase' ? (
+                    <div>
+                      {/* Case Chips */}
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                        {sampleCases.map((tc, idx) => (
+                          <button
+                            key={tc.id || idx}
+                            type="button"
+                            onClick={() => setSelectedCaseIdx(idx)}
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              borderRadius: 'var(--radius)',
+                              border: '1px solid',
+                              borderColor: selectedCaseIdx === idx ? 'var(--accent)' : 'var(--border)',
+                              background: selectedCaseIdx === idx ? 'var(--surface)' : 'transparent',
+                              color: selectedCaseIdx === idx ? 'var(--accent)' : 'var(--muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Case {idx + 1}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Selected Case Input */}
+                      {currentCase && (
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '6px' }}>
+                            stdin input:
                           </div>
-                          <div className="card-body p-3">
-                            <div className="mb-2">
-                              <span className="text-muted small fw-semibold d-block">Input:</span>
-                              <pre className="bg-light p-2 rounded border mb-0 small font-monospace">
-                                <code>{c.input}</code>
-                              </pre>
-                            </div>
-                            <div className="mb-2">
-                              <span className="text-muted small fw-semibold d-block">Expected:</span>
-                              <pre className="bg-light p-2 rounded border mb-0 small font-monospace">
-                                <code>{c.expected}</code>
-                              </pre>
-                            </div>
-                            <div>
-                              <span className="text-muted small fw-semibold d-block">Actual:</span>
-                              <pre
-                                className={`p-2 rounded border mb-0 small font-monospace ${
-                                  c.status === 'ACCEPTED'
-                                    ? 'bg-light'
-                                    : 'bg-danger-subtle text-danger'
-                                }`}
-                              >
-                                <code>{c.actual ?? ''}</code>
-                              </pre>
-                            </div>
+                          <pre
+                            style={{
+                              margin: 0,
+                              padding: '10px 14px',
+                              background: 'var(--code-bg)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              fontSize: '0.8125rem',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text)',
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            <code>{currentCase.input}</code>
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Test Result Tab */
+                    <div>
+                      {isExecuting ? (
+                        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)' }}>
+                          <div className="ca-spin" style={{ display: 'inline-block', marginBottom: '10px', color: 'var(--accent)' }}>
+                            <RotateCcw size={22} />
+                          </div>
+                          <div style={{ fontSize: '0.875rem' }}>
+                            {executionType === 'run' ? 'Running sample test cases...' : 'Submitting & judging all test cases...'}
                           </div>
                         </div>
-                      ))}
+                      ) : !runResult ? (
+                        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+                          You must run your code first to evaluate against test cases.
+                        </div>
+                      ) : (
+                        <div>
+                          {/* Animated Verdict Header */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {runResult.verdict === 'ACCEPTED' ? (
+                                <CheckCircle2 size={24} style={{ color: 'var(--easy)' }} />
+                              ) : runResult.verdict === 'TIME_LIMIT_EXCEEDED' || runResult.verdict === 'COMPILATION_ERROR' ? (
+                                <AlertTriangle size={24} style={{ color: 'var(--medium)' }} />
+                              ) : (
+                                <XCircle size={24} style={{ color: 'var(--hard)' }} />
+                              )}
+                              <span
+                                style={{
+                                  fontSize: '1.25rem',
+                                  fontWeight: 800,
+                                  color:
+                                    runResult.verdict === 'ACCEPTED'
+                                      ? 'var(--easy)'
+                                      : runResult.verdict === 'TIME_LIMIT_EXCEEDED' || runResult.verdict === 'COMPILATION_ERROR'
+                                      ? 'var(--medium)'
+                                      : 'var(--hard)',
+                                }}
+                              >
+                                {runResult.verdict.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '16px', fontSize: '0.8125rem' }}>
+                              <span>Runtime: <strong style={{ color: 'var(--text)' }}>{runResult.runtimeMs != null ? `${runResult.runtimeMs} ms` : '-'}</strong></span>
+                              {runResult.type === 'submit' && (
+                                <span>Passed: <strong style={{ color: 'var(--text)' }}>{runResult.passedCount} / {runResult.totalCount}</strong></span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Passed / Total Progress Bar (for Submit) */}
+                          {runResult.type === 'submit' && (
+                            <div
+                              style={{
+                                width: '100%',
+                                height: '6px',
+                                background: 'var(--surface)',
+                                borderRadius: 'var(--radius-full)',
+                                overflow: 'hidden',
+                                marginBottom: '16px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  height: '100%',
+                                  width: `${(runResult.passedCount / (runResult.totalCount || 1)) * 100}%`,
+                                  background: runResult.verdict === 'ACCEPTED' ? 'var(--easy)' : 'var(--hard)',
+                                  borderRadius: 'var(--radius-full)',
+                                  transition: 'width 0.4s ease',
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Error Text in Red-Tinted Box */}
+                          {runResult.errorText && (
+                            <div style={{ marginBottom: '16px' }}>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--hard)', marginBottom: '4px' }}>
+                                Error Output:
+                              </div>
+                              <pre
+                                style={{
+                                  margin: 0,
+                                  padding: '12px',
+                                  background: 'var(--hard-bg)',
+                                  border: '1px solid rgba(255, 77, 79, 0.3)',
+                                  borderRadius: 'var(--radius)',
+                                  color: 'var(--hard)',
+                                  fontSize: '0.8rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  whiteSpace: 'pre-wrap',
+                                  maxHeight: '180px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                <code>{runResult.errorText}</code>
+                              </pre>
+                            </div>
+                          )}
+
+                          {/* For Run: Show sample case chips and input/expected/output with diff highlight */}
+                          {runResult.type === 'run' && runResult.cases && runResult.cases.length > 0 && (
+                            <div>
+                              {/* Case selector chips with green / red dots */}
+                              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                                {runResult.cases.map((c, idx) => {
+                                  const isCaseAcc = c.status === 'ACCEPTED';
+                                  return (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => setSelectedCaseIdx(idx)}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '5px 12px',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid',
+                                        borderColor: selectedCaseIdx === idx ? 'var(--accent)' : 'var(--border)',
+                                        background: selectedCaseIdx === idx ? 'var(--surface)' : 'transparent',
+                                        color: selectedCaseIdx === idx ? 'var(--text)' : 'var(--muted)',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          width: '7px',
+                                          height: '7px',
+                                          borderRadius: '50%',
+                                          background: isCaseAcc ? 'var(--easy)' : 'var(--hard)',
+                                        }}
+                                      />
+                                      Case {idx + 1}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Selected Case Evaluation Details */}
+                              {runResult.cases[selectedCaseIdx] && (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                                  {/* Input */}
+                                  <div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Input</div>
+                                    <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--code-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+                                      <code>{runResult.cases[selectedCaseIdx].input}</code>
+                                    </pre>
+                                  </div>
+
+                                  {/* Expected */}
+                                  <div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Expected</div>
+                                    <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--code-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+                                      <code>{runResult.cases[selectedCaseIdx].expected}</code>
+                                    </pre>
+                                  </div>
+
+                                  {/* Output (differing lines highlighted if failed) */}
+                                  <div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Actual Output</div>
+                                    <pre
+                                      style={{
+                                        margin: 0,
+                                        padding: '8px 10px',
+                                        background: runResult.cases[selectedCaseIdx].status === 'ACCEPTED' ? 'var(--code-bg)' : 'var(--hard-bg)',
+                                        border: `1px solid ${runResult.cases[selectedCaseIdx].status === 'ACCEPTED' ? 'var(--border)' : 'rgba(255, 77, 79, 0.4)'}`,
+                                        borderRadius: 'var(--radius-sm)',
+                                        fontSize: '0.8rem',
+                                        fontFamily: 'var(--font-mono)',
+                                        color: runResult.cases[selectedCaseIdx].status === 'ACCEPTED' ? 'var(--text)' : 'var(--hard)',
+                                      }}
+                                    >
+                                      <code>{runResult.cases[selectedCaseIdx].actual ?? '(no output)'}</code>
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+                  )}
+                </div>
+              </Panel>
+            </Group>
+          </Panel>
+        </Group>
       </div>
+
+      <style>{`
+        .ca-markdown h1, .ca-markdown h2, .ca-markdown h3 {
+          font-weight: 700;
+          color: var(--text);
+          margin-top: 1rem;
+          margin-bottom: 0.5rem;
+        }
+        .ca-markdown p {
+          margin-bottom: 0.85rem;
+        }
+        .ca-markdown code {
+          background: var(--surface-2);
+          color: var(--accent);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: var(--font-mono);
+          font-size: 0.85em;
+        }
+        .ca-markdown pre code {
+          background: transparent;
+          color: inherit;
+          padding: 0;
+        }
+        .ca-markdown table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 1rem 0;
+        }
+        .ca-markdown th, .ca-markdown td {
+          border: 1px solid var(--border);
+          padding: 6px 10px;
+        }
+        .ca-markdown th {
+          background: var(--surface-2);
+        }
+      `}</style>
     </div>
   );
 }

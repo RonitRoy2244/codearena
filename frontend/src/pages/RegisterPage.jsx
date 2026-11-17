@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
+import AuthLayout from '../components/auth/AuthLayout';
+import Button from '../components/ui/Button';
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -75,119 +79,249 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="container py-5">
-      <div className="row justify-content-center">
-        <div className="col-md-6 col-lg-5">
-          <div className="card shadow-sm border-0">
-            <div className="card-body p-4">
-              <h2 className="card-title text-center mb-4 fw-bold">Create Account</h2>
-
-              {error && (
-                <div className="alert alert-danger py-2" role="alert">
-                  {error}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} noValidate>
-                <div className="mb-3">
-                  <label className="form-label" htmlFor="reg-username">
-                    Username
-                  </label>
-                  <input
-                    id="reg-username"
-                    type="text"
-                    className={`form-control ${fieldErrors.username ? 'is-invalid' : ''}`}
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Choose a username"
-                    autoFocus
-                    required
-                  />
-                  {fieldErrors.username && (
-                    <div className="invalid-feedback">{fieldErrors.username}</div>
-                  )}
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label" htmlFor="reg-email">
-                    Email
-                  </label>
-                  <input
-                    id="reg-email"
-                    type="email"
-                    className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    required
-                  />
-                  {fieldErrors.email && (
-                    <div className="invalid-feedback">{fieldErrors.email}</div>
-                  )}
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label" htmlFor="reg-password">
-                    Password
-                  </label>
-                  <input
-                    id="reg-password"
-                    type="password"
-                    className={`form-control ${fieldErrors.password ? 'is-invalid' : ''}`}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    required
-                  />
-                  {fieldErrors.password && (
-                    <div className="invalid-feedback">{fieldErrors.password}</div>
-                  )}
-                </div>
-
-                <div className="mb-4">
-                  <label className="form-label" htmlFor="reg-confirm">
-                    Confirm Password
-                  </label>
-                  <input
-                    id="reg-confirm"
-                    type="password"
-                    className={`form-control ${fieldErrors.confirmPassword ? 'is-invalid' : ''}`}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter your password"
-                    required
-                  />
-                  {fieldErrors.confirmPassword && (
-                    <div className="invalid-feedback">{fieldErrors.confirmPassword}</div>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  className="btn btn-primary w-100 py-2 fw-semibold"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <span>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Registering...
-                    </span>
-                  ) : (
-                    'Register'
-                  )}
-                </button>
-              </form>
-
-              <div className="text-center mt-3 text-muted">
-                Already have an account?{' '}
-                <Link to="/login" className="text-decoration-none fw-semibold">
-                  Sign In
-                </Link>
-              </div>
-            </div>
-          </div>
+    <AuthLayout
+      title="Create your account"
+      subtitle="Join CodeArena to start solving coding problems and tracking submissions."
+    >
+      {error && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'var(--hard-bg)',
+            border: '1px solid rgba(255, 77, 79, 0.3)',
+            borderRadius: 'var(--radius)',
+            padding: '10px 14px',
+            color: 'var(--hard)',
+            fontSize: '0.85rem',
+            marginBottom: '20px',
+          }}
+        >
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
+          <span>{error}</span>
         </div>
+      )}
+
+      <form onSubmit={handleSubmit} noValidate>
+        {/* Username */}
+        <div style={{ marginBottom: '16px' }}>
+          <label
+            htmlFor="username"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
+            Username
+          </label>
+          <input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Choose a username"
+            required
+            style={{
+              width: '100%',
+              height: '40px',
+              padding: '0 12px',
+              fontSize: '0.875rem',
+              fontFamily: 'var(--font-sans)',
+              background: 'var(--surface-2)',
+              border: `1px solid ${fieldErrors.username ? 'var(--hard)' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)',
+              color: 'var(--text)',
+              outline: 'none',
+              transition: 'border-color var(--transition-fast)',
+            }}
+            onFocus={(e) => !fieldErrors.username && (e.target.style.borderColor = 'var(--accent)')}
+            onBlur={(e) => !fieldErrors.username && (e.target.style.borderColor = 'var(--border)')}
+          />
+          {fieldErrors.username && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--hard)', marginTop: '4px', display: 'block' }}>
+              {fieldErrors.username}
+            </span>
+          )}
+        </div>
+
+        {/* Email */}
+        <div style={{ marginBottom: '16px' }}>
+          <label
+            htmlFor="email"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
+            Email address
+          </label>
+          <input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@example.com"
+            required
+            style={{
+              width: '100%',
+              height: '40px',
+              padding: '0 12px',
+              fontSize: '0.875rem',
+              fontFamily: 'var(--font-sans)',
+              background: 'var(--surface-2)',
+              border: `1px solid ${fieldErrors.email ? 'var(--hard)' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)',
+              color: 'var(--text)',
+              outline: 'none',
+              transition: 'border-color var(--transition-fast)',
+            }}
+            onFocus={(e) => !fieldErrors.email && (e.target.style.borderColor = 'var(--accent)')}
+            onBlur={(e) => !fieldErrors.email && (e.target.style.borderColor = 'var(--border)')}
+          />
+          {fieldErrors.email && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--hard)', marginTop: '4px', display: 'block' }}>
+              {fieldErrors.email}
+            </span>
+          )}
+        </div>
+
+        {/* Password */}
+        <div style={{ marginBottom: '16px' }}>
+          <label
+            htmlFor="password"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
+            Password (min 6 characters)
+          </label>
+          <div style={{ position: 'relative' }}>
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Create a strong password"
+              required
+              style={{
+                width: '100%',
+                height: '40px',
+                padding: '0 40px 0 12px',
+                fontSize: '0.875rem',
+                fontFamily: 'var(--font-sans)',
+                background: 'var(--surface-2)',
+                border: `1px solid ${fieldErrors.password ? 'var(--hard)' : 'var(--border)'}`,
+                borderRadius: 'var(--radius)',
+                color: 'var(--text)',
+                outline: 'none',
+                transition: 'border-color var(--transition-fast)',
+              }}
+              onFocus={(e) => !fieldErrors.password && (e.target.style.borderColor = 'var(--accent)')}
+              onBlur={(e) => !fieldErrors.password && (e.target.style.borderColor = 'var(--border)')}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '4px',
+              }}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          {fieldErrors.password && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--hard)', marginTop: '4px', display: 'block' }}>
+              {fieldErrors.password}
+            </span>
+          )}
+        </div>
+
+        {/* Confirm Password */}
+        <div style={{ marginBottom: '24px' }}>
+          <label
+            htmlFor="confirmPassword"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
+            Confirm Password
+          </label>
+          <input
+            id="confirmPassword"
+            type={showPassword ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Repeat password"
+            required
+            style={{
+              width: '100%',
+              height: '40px',
+              padding: '0 12px',
+              fontSize: '0.875rem',
+              fontFamily: 'var(--font-sans)',
+              background: 'var(--surface-2)',
+              border: `1px solid ${fieldErrors.confirmPassword ? 'var(--hard)' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)',
+              color: 'var(--text)',
+              outline: 'none',
+              transition: 'border-color var(--transition-fast)',
+            }}
+            onFocus={(e) => !fieldErrors.confirmPassword && (e.target.style.borderColor = 'var(--accent)')}
+            onBlur={(e) => !fieldErrors.confirmPassword && (e.target.style.borderColor = 'var(--border)')}
+          />
+          {fieldErrors.confirmPassword && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--hard)', marginTop: '4px', display: 'block' }}>
+              {fieldErrors.confirmPassword}
+            </span>
+          )}
+        </div>
+
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          loading={loading}
+          style={{ width: '100%', height: '44px' }}
+        >
+          Create account
+        </Button>
+      </form>
+
+      <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.875rem', color: 'var(--muted)' }}>
+        Already have an account?{' '}
+        <Link
+          to="/login"
+          style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+        >
+          Sign in
+        </Link>
       </div>
-    </div>
+    </AuthLayout>
   );
 }

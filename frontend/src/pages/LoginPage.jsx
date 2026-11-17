@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
+import AuthLayout from '../components/auth/AuthLayout';
+import Button from '../components/ui/Button';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -45,77 +49,152 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="container py-5">
-      <div className="row justify-content-center">
-        <div className="col-md-5 col-lg-4">
-          <div className="card shadow-sm border-0">
-            <div className="card-body p-4">
-              <h2 className="card-title text-center mb-4 fw-bold">Sign In</h2>
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to your CodeArena account to continue solving."
+    >
+      {error && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'var(--hard-bg)',
+            border: '1px solid rgba(255, 77, 79, 0.3)',
+            borderRadius: 'var(--radius)',
+            padding: '10px 14px',
+            color: 'var(--hard)',
+            fontSize: '0.85rem',
+            marginBottom: '20px',
+          }}
+        >
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
+          <span>{error}</span>
+        </div>
+      )}
 
-              {error && (
-                <div className="alert alert-danger py-2" role="alert">
-                  {error}
-                </div>
-              )}
+      <form onSubmit={handleSubmit} noValidate>
+        {/* Username */}
+        <div style={{ marginBottom: '18px' }}>
+          <label
+            htmlFor="username"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
+            Username
+          </label>
+          <input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="e.g. alex_dev"
+            autoFocus
+            required
+            style={{
+              width: '100%',
+              height: '42px',
+              padding: '0 12px',
+              fontSize: '0.875rem',
+              fontFamily: 'var(--font-sans)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              color: 'var(--text)',
+              outline: 'none',
+              transition: 'border-color var(--transition-fast)',
+            }}
+            onFocus={(e) => (e.target.style.borderColor = 'var(--accent)')}
+            onBlur={(e) => (e.target.style.borderColor = 'var(--border)')}
+          />
+        </div>
 
-              <form onSubmit={handleSubmit} noValidate>
-                <div className="mb-3">
-                  <label className="form-label" htmlFor="username">
-                    Username
-                  </label>
-                  <input
-                    id="username"
-                    type="text"
-                    className="form-control"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Enter your username"
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                <div className="mb-4">
-                  <label className="form-label" htmlFor="password">
-                    Password
-                  </label>
-                  <input
-                    id="password"
-                    type="password"
-                    className="form-control"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="btn btn-primary w-100 py-2 fw-semibold"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <span>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Signing In...
-                    </span>
-                  ) : (
-                    'Sign In'
-                  )}
-                </button>
-              </form>
-
-              <div className="text-center mt-3 text-muted">
-                Don't have an account?{' '}
-                <Link to="/register" className="text-decoration-none fw-semibold">
-                  Register
-                </Link>
-              </div>
-            </div>
+        {/* Password */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <label
+              htmlFor="password"
+              style={{
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Password
+            </label>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              required
+              style={{
+                width: '100%',
+                height: '42px',
+                padding: '0 40px 0 12px',
+                fontSize: '0.875rem',
+                fontFamily: 'var(--font-sans)',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                color: 'var(--text)',
+                outline: 'none',
+                transition: 'border-color var(--transition-fast)',
+              }}
+              onFocus={(e) => (e.target.style.borderColor = 'var(--accent)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--border)')}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '4px',
+              }}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
           </div>
         </div>
+
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          loading={loading}
+          style={{ width: '100%', height: '44px' }}
+        >
+          Sign in
+        </Button>
+      </form>
+
+      <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.875rem', color: 'var(--muted)' }}>
+        Don't have an account?{' '}
+        <Link
+          to="/register"
+          style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+        >
+          Create one now
+        </Link>
       </div>
-    </div>
+    </AuthLayout>
   );
 }
