@@ -15,6 +15,8 @@ public class RunCodeRequest {
     @NotBlank(message = "sourceCode cannot be blank")
     private String sourceCode;
 
+    private String customInput;
+
     public RunCodeRequest() {
     }
 
@@ -22,6 +24,13 @@ public class RunCodeRequest {
         this.problemSlug = problemSlug;
         this.language = language;
         this.sourceCode = sourceCode;
+    }
+
+    public RunCodeRequest(String problemSlug, Language language, String sourceCode, String customInput) {
+        this.problemSlug = problemSlug;
+        this.language = language;
+        this.sourceCode = sourceCode;
+        this.customInput = customInput;
     }
 
     public String getProblemSlug() {
@@ -46,5 +55,13 @@ public class RunCodeRequest {
 
     public void setSourceCode(String sourceCode) {
         this.sourceCode = sourceCode;
+    }
+
+    public String getCustomInput() {
+        return customInput;
+    }
+
+    public void setCustomInput(String customInput) {
+        this.customInput = customInput;
     }
 }

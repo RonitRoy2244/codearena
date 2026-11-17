@@ -55,16 +55,26 @@ public class SubmissionService {
         Problem problem = problemRepository.findBySlug(request.getProblemSlug())
                 .orElseThrow(() -> new ResourceNotFoundException("Problem not found with slug: " + request.getProblemSlug()));
 
-        List<TestCase> sampleCases = problem.getTestCases().stream()
-                .filter(TestCase::isSample)
-                .collect(Collectors.toList());
+        SampleRunResult result;
+        if (request.getCustomInput() != null) {
+            result = judgeService.runCustom(
+                    request.getLanguage(),
+                    request.getSourceCode(),
+                    problem.getTimeLimitMs(),
+                    request.getCustomInput()
+            );
+        } else {
+            List<TestCase> sampleCases = problem.getTestCases().stream()
+                    .filter(TestCase::isSample)
+                    .collect(Collectors.toList());
 
-        SampleRunResult result = judgeService.runSamples(
-                request.getLanguage(),
-                request.getSourceCode(),
-                problem.getTimeLimitMs(),
-                sampleCases
-        );
+            result = judgeService.runSamples(
+                    request.getLanguage(),
+                    request.getSourceCode(),
+                    problem.getTimeLimitMs(),
+                    sampleCases
+            );
+        }
 
         return new RunCodeResponse(
                 result.verdict(),

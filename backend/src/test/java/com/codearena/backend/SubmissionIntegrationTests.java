@@ -127,6 +127,37 @@ class SubmissionIntegrationTests {
     }
 
     @Test
+    void shouldRunCustomInputWhenProvided() throws Exception {
+        String jsSolution = """
+                const fs = require('fs');
+                const [a, b] = fs.readFileSync(0, 'utf-8').trim().split(/\\s+/).map(Number);
+                console.log(a + b);
+                """;
+
+        String requestJson = String.format("""
+                {
+                    "problemSlug": "sum-of-two-numbers",
+                    "language": "JAVASCRIPT",
+                    "sourceCode": %s,
+                    "customInput": "100 200"
+                }
+                """, org.json.JSONObject.quote(jsSolution));
+
+        mockMvc.perform(post("/api/run")
+                        .header("Authorization", "Bearer " + token1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verdict", is("ACCEPTED")))
+                .andExpect(jsonPath("$.cases", hasSize(1)))
+                .andExpect(jsonPath("$.cases[0].input", is("100 200")))
+                .andExpect(jsonPath("$.cases[0].actual", is("300\n")))
+                .andExpect(jsonPath("$.cases[0].status", is("ACCEPTED")));
+
+        assertEquals(0, submissionRepository.count());
+    }
+
+    @Test
     void shouldRejectRunCodeWhenUnauthenticated() throws Exception {
         String requestJson = """
                 {

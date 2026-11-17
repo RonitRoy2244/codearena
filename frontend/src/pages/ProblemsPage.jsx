@@ -18,7 +18,7 @@ import { Skeleton, EmptyState } from '../components/ui/Skeleton';
 
 export default function ProblemsPage() {
   const { isAuthenticated } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const [problems, setProblems] = useState([]);
   const [solvedSlugs, setSolvedSlugs] = useState(new Set());

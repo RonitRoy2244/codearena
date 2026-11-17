@@ -138,6 +138,48 @@ public class JudgeService {
         }
     }
 
+    public SampleRunResult runCustom(Language language, String sourceCode, int baseTimeLimitMs, String customInput) {
+        try {
+            semaphore.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Thread interrupted while waiting for judging permit", e);
+        }
+
+        try {
+            int timeout = (language == Language.JAVA) ? baseTimeLimitMs * 3 : baseTimeLimitMs;
+            String input = (customInput != null) ? customInput : "";
+            RunResult rr = codeRunner.run(language, sourceCode, input, timeout);
+
+            SubmissionStatus status;
+            String errorText = null;
+
+            if (rr.status() == RunStatus.OK) {
+                status = SubmissionStatus.ACCEPTED;
+            } else if (rr.status() == RunStatus.TIME_LIMIT_EXCEEDED) {
+                status = SubmissionStatus.TIME_LIMIT_EXCEEDED;
+                errorText = "Time Limit Exceeded";
+            } else if (rr.status() == RunStatus.COMPILATION_ERROR) {
+                status = SubmissionStatus.COMPILATION_ERROR;
+                errorText = rr.stderr();
+            } else {
+                status = SubmissionStatus.RUNTIME_ERROR;
+                errorText = rr.stderr();
+            }
+
+            SampleCaseResult caseResult = new SampleCaseResult(
+                    input,
+                    "(Custom run)",
+                    rr.stdout(),
+                    status
+            );
+
+            return new SampleRunResult(status, rr.runtimeMs(), errorText, List.of(caseResult));
+        } finally {
+            semaphore.release();
+        }
+    }
+
     public static String normalize(String s) {
         if (s == null) {
             return "";

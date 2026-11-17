@@ -90,9 +90,11 @@ export default function ProblemDetailPage() {
     return STARTER_CODES;
   });
 
-  // Bottom Console Tabs: 'testcase' | 'result'
+  // Bottom Console Tabs: 'testcase' | 'custom' | 'result'
   const [consoleTab, setConsoleTab] = useState('testcase');
   const [selectedCaseIdx, setSelectedCaseIdx] = useState(0);
+  const [customInput, setCustomInput] = useState('');
+  const [isSaved, setIsSaved] = useState(true);
 
   // Execution State
   const [isExecuting, setIsExecuting] = useState(false);
@@ -103,6 +105,20 @@ export default function ProblemDetailPage() {
   // Mobile layout switch (below 900px): 'desc' | 'code'
   const [mobileTab, setMobileTab] = useState('desc');
 
+  // Load saved code when slug changes
+  useEffect(() => {
+    const saved = localStorage.getItem(`codearena-code-${slug}`);
+    if (saved) {
+      try {
+        setCodeByLanguage(JSON.parse(saved));
+        return;
+      } catch {
+        // fallback
+      }
+    }
+    setCodeByLanguage(STARTER_CODES);
+  }, [slug]);
+
   // Fetch Problem Data
   useEffect(() => {
     setLoadingProblem(true);
@@ -111,6 +127,9 @@ export default function ProblemDetailPage() {
     api.get(`/api/problems/${slug}`)
       .then((res) => {
         setProblem(res.data);
+        if (res.data?.sampleTestCases?.length) {
+          setCustomInput(res.data.sampleTestCases[0].input || '');
+        }
       })
       .catch((err) => {
         setProblemError(err.response?.data?.message || 'Failed to load problem.');
@@ -143,11 +162,13 @@ export default function ProblemDetailPage() {
 
   // Save Code to LocalStorage
   const handleCodeChange = (value) => {
+    setIsSaved(false);
     setCodeByLanguage((prev) => {
       const updated = { ...prev, [selectedLanguage]: value ?? '' };
       localStorage.setItem(`codearena-code-${slug}`, JSON.stringify(updated));
       return updated;
     });
+    setTimeout(() => setIsSaved(true), 350);
   };
 
   // Reset Code
@@ -158,6 +179,7 @@ export default function ProblemDetailPage() {
         localStorage.setItem(`codearena-code-${slug}`, JSON.stringify(updated));
         return updated;
       });
+      setIsSaved(true);
       toast('Code reset to default starter', { icon: '🔄' });
     }
   };
@@ -213,7 +235,7 @@ export default function ProblemDetailPage() {
   };
 
   // Execute Code: Run
-  const handleRun = async () => {
+  const handleRun = async (overrideCustom = null) => {
     if (!isAuthenticated) {
       toast('Please sign in to run code', { icon: '🔒' });
       navigate('/login');
@@ -225,12 +247,22 @@ export default function ProblemDetailPage() {
     setConsoleTab('result');
 
     try {
-      const res = await api.post('/api/run', {
+      const payload = {
         problemSlug: slug,
         language: selectedLanguage,
         sourceCode: codeByLanguage[selectedLanguage],
-      });
-      setRunResult({ type: 'run', ...res.data });
+      };
+
+      const inputToUse = overrideCustom !== null 
+        ? overrideCustom 
+        : (consoleTab === 'custom' ? customInput : null);
+
+      if (inputToUse !== null && inputToUse !== undefined) {
+        payload.customInput = inputToUse;
+      }
+
+      const res = await api.post('/api/run', payload);
+      setRunResult({ type: 'run', isCustom: payload.customInput != null, ...res.data });
       setSelectedCaseIdx(0);
     } catch (err) {
       if (err.response?.status === 401) {
@@ -878,6 +910,23 @@ export default function ProblemDetailPage() {
                       <option value="16">16px</option>
                       <option value="18">18px</option>
                     </select>
+
+                    {/* Auto-save status indicator */}
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '0.72rem',
+                        color: 'var(--muted)',
+                        userSelect: 'none',
+                        marginLeft: '4px',
+                      }}
+                      title="Changes are auto-saved to your local draft in browser storage"
+                    >
+                      <Check size={12} style={{ color: isSaved ? 'var(--easy)' : 'var(--muted)' }} />
+                      <span className="d-none d-sm-inline">{isSaved ? 'Saved' : 'Saving...'}</span>
+                    </span>
                   </div>
 
                   {/* Run & Submit Action Buttons */}
@@ -967,7 +1016,36 @@ export default function ProblemDetailPage() {
                         cursor: 'pointer',
                       }}
                     >
-                      Testcase
+                      Sample Cases
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConsoleTab('custom')}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: consoleTab === 'custom' ? 'var(--text)' : 'var(--muted)',
+                        background: consoleTab === 'custom' ? 'var(--surface-2)' : 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span>Custom Input</span>
+                      {customInput && (
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            background: 'var(--accent)',
+                          }}
+                        />
+                      )}
                     </button>
                     <button
                       type="button"
@@ -1032,8 +1110,28 @@ export default function ProblemDetailPage() {
                       {/* Selected Case Input */}
                       {currentCase && (
                         <div>
-                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '6px' }}>
-                            stdin input:
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>
+                              stdin input:
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomInput(currentCase.input);
+                                setConsoleTab('custom');
+                                toast('Loaded into Custom Input', { icon: '✏️' });
+                              }}
+                              style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--accent)',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                              }}
+                            >
+                              Edit as custom input →
+                            </button>
                           </div>
                           <pre
                             style={{
@@ -1053,6 +1151,81 @@ export default function ProblemDetailPage() {
                         </div>
                       )}
                     </div>
+                  ) : consoleTab === 'custom' ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>
+                          Custom stdin input:
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sampleCases[0]) {
+                                setCustomInput(sampleCases[0].input);
+                                toast('Loaded Sample 1 input', { icon: '📋' });
+                              }
+                            }}
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--accent)',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            Load Sample 1
+                          </button>
+                          <span style={{ color: 'var(--border)' }}>|</span>
+                          <button
+                            type="button"
+                            onClick={() => setCustomInput('')}
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--muted)',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        value={customInput}
+                        onChange={(e) => setCustomInput(e.target.value)}
+                        placeholder="Type or paste custom stdin input here..."
+                        rows={4}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          background: 'var(--code-bg)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.8125rem',
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--text)',
+                          resize: 'vertical',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleRun(customInput)}
+                          loading={isExecuting && executionType === 'run'}
+                          disabled={isExecuting}
+                          iconLeft={<Play size={13} fill="currentColor" />}
+                        >
+                          Run Custom Input
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
                     /* Test Result Tab */
                     <div>
@@ -1062,12 +1235,12 @@ export default function ProblemDetailPage() {
                             <RotateCcw size={22} />
                           </div>
                           <div style={{ fontSize: '0.875rem' }}>
-                            {executionType === 'run' ? 'Running sample test cases...' : 'Submitting & judging all test cases...'}
+                            {executionType === 'run' ? 'Running code...' : 'Submitting & judging all test cases...'}
                           </div>
                         </div>
                       ) : !runResult ? (
                         <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-                          You must run your code first to evaluate against test cases.
+                          Run your code to evaluate against test cases or custom input.
                         </div>
                       ) : (
                         <div>
@@ -1093,8 +1266,13 @@ export default function ProblemDetailPage() {
                                       : 'var(--hard)',
                                 }}
                               >
-                                {runResult.verdict.replace(/_/g, ' ')}
+                                {runResult.isCustom ? (runResult.verdict === 'ACCEPTED' ? 'FINISHED' : runResult.verdict.replace(/_/g, ' ')) : runResult.verdict.replace(/_/g, ' ')}
                               </span>
+                              {runResult.isCustom && (
+                                <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--accent)', border: '1px solid var(--border)' }}>
+                                  Custom Run
+                                </span>
+                              )}
                             </div>
 
                             <div style={{ display: 'flex', gap: '16px', fontSize: '0.8125rem' }}>
@@ -1158,66 +1336,71 @@ export default function ProblemDetailPage() {
                           {/* For Run: Show sample case chips and input/expected/output with diff highlight */}
                           {runResult.type === 'run' && runResult.cases && runResult.cases.length > 0 && (
                             <div>
-                              {/* Case selector chips with green / red dots */}
-                              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                                {runResult.cases.map((c, idx) => {
-                                  const isCaseAcc = c.status === 'ACCEPTED';
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      onClick={() => setSelectedCaseIdx(idx)}
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        padding: '5px 12px',
-                                        fontSize: '0.78rem',
-                                        fontWeight: 600,
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid',
-                                        borderColor: selectedCaseIdx === idx ? 'var(--accent)' : 'var(--border)',
-                                        background: selectedCaseIdx === idx ? 'var(--surface)' : 'transparent',
-                                        color: selectedCaseIdx === idx ? 'var(--text)' : 'var(--muted)',
-                                        cursor: 'pointer',
-                                      }}
-                                    >
-                                      <span
+                              {!runResult.isCustom && (
+                                <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                                  {runResult.cases.map((c, idx) => {
+                                    const isCaseAcc = c.status === 'ACCEPTED';
+                                    return (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setSelectedCaseIdx(idx)}
                                         style={{
-                                          width: '7px',
-                                          height: '7px',
-                                          borderRadius: '50%',
-                                          background: isCaseAcc ? 'var(--easy)' : 'var(--hard)',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          padding: '5px 12px',
+                                          fontSize: '0.78rem',
+                                          fontWeight: 600,
+                                          borderRadius: 'var(--radius)',
+                                          border: '1px solid',
+                                          borderColor: selectedCaseIdx === idx ? 'var(--accent)' : 'var(--border)',
+                                          background: selectedCaseIdx === idx ? 'var(--surface)' : 'transparent',
+                                          color: selectedCaseIdx === idx ? 'var(--text)' : 'var(--muted)',
+                                          cursor: 'pointer',
                                         }}
-                                      />
-                                      Case {idx + 1}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                                      >
+                                        <span
+                                          style={{
+                                            width: '7px',
+                                            height: '7px',
+                                            borderRadius: '50%',
+                                            background: isCaseAcc ? 'var(--easy)' : 'var(--hard)',
+                                          }}
+                                        />
+                                        Case {idx + 1}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
 
                               {/* Selected Case Evaluation Details */}
                               {runResult.cases[selectedCaseIdx] && (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: runResult.isCustom ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                                   {/* Input */}
                                   <div>
-                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Input</div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>
+                                      {runResult.isCustom ? 'Custom Input (stdin)' : 'Input'}
+                                    </div>
                                     <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--code-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-                                      <code>{runResult.cases[selectedCaseIdx].input}</code>
+                                      <code>{runResult.cases[selectedCaseIdx].input || '(empty)'}</code>
                                     </pre>
                                   </div>
 
-                                  {/* Expected */}
-                                  <div>
-                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Expected</div>
-                                    <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--code-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-                                      <code>{runResult.cases[selectedCaseIdx].expected}</code>
-                                    </pre>
-                                  </div>
+                                  {/* Expected (only for sample cases) */}
+                                  {!runResult.isCustom && (
+                                    <div>
+                                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Expected</div>
+                                      <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--code-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+                                        <code>{runResult.cases[selectedCaseIdx].expected}</code>
+                                      </pre>
+                                    </div>
+                                  )}
 
-                                  {/* Output (differing lines highlighted if failed) */}
+                                  {/* Output */}
                                   <div>
-                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Actual Output</div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px' }}>Actual Output (stdout)</div>
                                     <pre
                                       style={{
                                         margin: 0,
